@@ -9,3 +9,8 @@
 ## potential problems
 
 - filenames ought to be human-readable for viewing git diffs
+
+## TODO
+
+- clean up unused files
+- filter changes by set of users in `last_modified_by`
