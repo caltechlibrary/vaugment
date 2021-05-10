@@ -272,8 +272,10 @@ def main(init: ("export initial json files only", "flag", "i")):
                 # TODO set path in settings
                 path = f"/tmp/archivesspace-json-records/{source_info['api']}"
                 for i in os.listdir(path):
-                    if os.path.isfile(os.path.join(path,i)) and i.startswith(f"{id_}-"):
-                        os.remove(os.path.join(path,i))
+                    if os.path.isfile(os.path.join(path, i)) and i.startswith(
+                        f"{id_}-"
+                    ):
+                        os.remove(os.path.join(path, i))
 
         # use source_info['api'] to get api endpoint path (without leading/trailing slashes)
         print(identifiers)
@@ -291,12 +293,23 @@ def main(init: ("export initial json files only", "flag", "i")):
             else:
                 name = result["title"]
             # delete keys that muck up diffs
+            conditional_keys_to_remove = [
+                "created_by",
+                "last_modified_by",
+            ]
+            volunteers = [
+                "alexandra",
+                "kitty",
+                "mary",
+            ]
             keys_to_remove = [
                 "create_time",
                 "lock_version",
                 "system_mtime",
                 "user_mtime",
             ]
+            if result["last_modified_by"] not in volunteers:
+                keys_to_remove.extend(conditional_keys_to_remove)
             clean = recursive_filter(result, *keys_to_remove)
             # limit the slug to 240 characters to avoid a macOS 255-character filename limit
             slug = make_safe_filename(name)[:240]
