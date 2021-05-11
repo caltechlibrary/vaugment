@@ -1,14 +1,16 @@
 import csv
+from datetime import datetime
 import difflib
 import gzip
 import json
 import os
-import pandas as pd
 from pathlib import Path
 import shutil
 import sys
 
 from asnake.client import ASnakeClient
+import git
+import pandas as pd
 
 asnake_client = ASnakeClient()
 asnake_client.authorize()
@@ -192,7 +194,7 @@ def main(init: ("export initial json files only", "flag", "i")):
         files = {
             # "new": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
             # "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-03-01.sql.gz",
-            "new": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-06.sql.gz",
+            "new": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-05.sql.gz",
             "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
         }
 
@@ -201,8 +203,11 @@ def main(init: ("export initial json files only", "flag", "i")):
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-    # two loops: 1- loop over each source, 2- loop over each file
+    git_files_add_archivists = []
+    git_files_add_volunteers = []
+    git_files_remove = []
 
+    # two loops: 1- loop over each source, 2- loop over each file
     for source_table, source_info in sources.items():
         print(source_table)
 
@@ -299,6 +304,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                     if os.path.isfile(os.path.join(path, i)) and i.startswith(
                         f"{id_}-"
                     ):
+                        git_files_remove.append(os.path.join(path, i))
                         os.remove(os.path.join(path, i))
 
         # use source_info['api'] to get api endpoint path (without leading/trailing slashes)
@@ -327,18 +333,80 @@ def main(init: ("export initial json files only", "flag", "i")):
                 "system_mtime",
                 "user_mtime",
             ]
+            # TODO turn duplicate code into a function
             if result["last_modified_by"] not in volunteers:
                 keys_to_remove.extend(conditional_keys_to_remove)
-            clean = recursive_filter(result, *keys_to_remove)
-            # limit the slug to 240 characters to avoid a macOS 255-character filename limit
-            slug = make_safe_filename(name)[:240]
-            with open(
-                # TODO set path in settings
-                f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
-                "w",
-            ) as f:
-                json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
+                # clean
+                clean = recursive_filter(result, *keys_to_remove)
+                # export JSON file
+                # limit the slug to 240 characters to avoid a macOS 255-character filename limit
+                slug = make_safe_filename(name)[:240]
+                with open(
+                    # TODO set path in settings
+                    f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
+                    "w",
+                ) as f:
+                    json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
+                    # add filename to archivists list
+                    git_files_add_archivists.append(f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json")
+            else:
+                # clean
+                clean = recursive_filter(result, *keys_to_remove)
+                # export JSON file
+                # limit the slug to 240 characters to avoid a macOS 255-character filename limit
+                slug = make_safe_filename(name)[:240]
+                with open(
+                    # TODO set path in settings
+                    f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
+                    "w",
+                ) as f:
+                    json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
+                    # add filename to volunteers list
+                    git_files_add_volunteers.append(f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json")
 
+
+    # TODO turn duplicate code into a function
+    if git.Repo(os.path.abspath("/tmp/archivesspace-json-records")):
+        git_repository = git.Repo(os.path.abspath("/tmp/archivesspace-json-records"))
+
+    # add archivist-modified files to git
+    git_repository.index.add(git_files_add_archivists)
+
+    # check differences between current files and last commit
+    # NOTE: diff is an empty string if nothing has changed
+    if git_repository.git.diff(git_repository.head.commit.tree):
+        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
+        # commit changes when they exist
+        git_repository.index.commit('archivist changes')
+        # git_repository.remotes.origin.push()
+    else:
+        print(str(datetime.today()) + ' no changes detected', flush=True)
+
+    # add deleted files to git
+    git_repository.index.remove(git_files_remove, working_tree=True)
+    # TODO add `deleted_records` table as csv file
+    git_repository.index.add(f"/tmp/archivesspace-json-records/deleted_records.csv")
+    # check differences between current files and last commit
+    # NOTE: diff is an empty string if nothing has changed
+    if git_repository.git.diff(git_repository.head.commit.tree):
+        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
+        # commit changes when they exist
+        git_repository.index.commit('deletions')
+        # git_repository.remotes.origin.push()
+    else:
+        print(str(datetime.today()) + ' no changes detected', flush=True)
+
+    # add volunteer-modified files to git
+    git_repository.index.add(git_files_add_volunteers)
+    # check differences between current files and last commit
+    # NOTE: diff is an empty string if nothing has changed
+    if git_repository.git.diff(git_repository.head.commit.tree):
+        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
+        # commit changes when they exist
+        git_repository.index.commit('volunteer changes')
+        # git_repository.remotes.origin.push()
+    else:
+        print(str(datetime.today()) + ' no changes detected', flush=True)
 
 # fmt: off
 if __name__ == "__main__":
