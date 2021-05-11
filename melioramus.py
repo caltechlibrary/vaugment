@@ -13,6 +13,12 @@ from asnake.client import ASnakeClient
 asnake_client = ASnakeClient()
 asnake_client.authorize()
 
+volunteers = [
+    "alexandra",
+    "kitty",
+    "mary",
+]
+
 # get files sorted by last modified
 def get_files_last_modified_desc(path):
     files = os.listdir(path)
@@ -121,6 +127,19 @@ def recursive_filter(item, *forbidden):
         return result
     return item
 
+def track_volunteer_deletions(insert_statement):
+    # TODO settings.ini for paths
+    tmpcsv = "/tmp/deleted_records.csv"
+    values = insert_statement.partition("` VALUES ")[2]
+    if values_sanity_check(values):
+        parse_values(values, tmpcsv)
+    # remove non-volunteer lines
+    with open(tmpcsv, 'r') as infile, open("/tmp/archivesspace-json-records/deleted_records.csv", 'w') as outfile:
+        writer = csv.writer(outfile)
+        for line in csv.reader(infile):
+            if any(volunteer in line for volunteer in volunteers):
+                writer.writerow(line)
+    return
 
 def main(init: ("export initial json files only", "flag", "i")):
 
@@ -206,11 +225,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                             if table != source_table:
                                 continue
                             elif table == 'deleted_records':
-                                # set up deleted_records.csv file
-                                tablecsv = f"/tmp/archivesspace-json-records/{table}.csv"
-                                values = line.partition("` VALUES ")[2]
-                                if values_sanity_check(values):
-                                    parse_values(values, tablecsv)
+                                track_volunteer_deletions(line)
                             # set up output file
                             tablecsv = f"{output_dir}/complete-{key}-{table}.csv"
                             values = line.partition("` VALUES ")[2]
@@ -305,11 +320,6 @@ def main(init: ("export initial json files only", "flag", "i")):
             conditional_keys_to_remove = [
                 "created_by",
                 "last_modified_by",
-            ]
-            volunteers = [
-                "alexandra",
-                "kitty",
-                "mary",
             ]
             keys_to_remove = [
                 "create_time",
