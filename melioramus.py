@@ -149,6 +149,7 @@ def main(init: ("export initial json files only", "flag", "i")):
         #     "system_mtime": "21",
         #     "total_columns": "27",
         # },
+        "deleted_records": None,
         "resource": {
             "api": "repositories/2/resources",
             "lock_version": "1",
@@ -204,12 +205,20 @@ def main(init: ("export initial json files only", "flag", "i")):
                             table = get_table_name(line)
                             if table != source_table:
                                 continue
+                            elif table == 'deleted_records':
+                                # set up deleted_records.csv file
+                                tablecsv = f"/tmp/archivesspace-json-records/{table}.csv"
+                                values = line.partition("` VALUES ")[2]
+                                if values_sanity_check(values):
+                                    parse_values(values, tablecsv)
                             # set up output file
                             tablecsv = f"{output_dir}/complete-{key}-{table}.csv"
                             values = line.partition("` VALUES ")[2]
                             if values_sanity_check(values):
                                 parse_values(values, tablecsv)
 
+            if source_table == 'deleted_records':
+                continue
             # list wanted columns
             wanted_columns = []
             for i in range(int(source_info["total_columns"])):
