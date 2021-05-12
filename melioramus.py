@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 
 from asnake.client import ASnakeClient
 import git
@@ -129,19 +130,23 @@ def recursive_filter(item, *forbidden):
         return result
     return item
 
+
 def track_volunteer_deletions(insert_statement):
     # TODO settings.ini for paths
-    tmpcsv = "/tmp/deleted_records.csv"
+    tmpcsv = tempfile.mkstemp()[1]
     values = insert_statement.partition("` VALUES ")[2]
     if values_sanity_check(values):
         parse_values(values, tmpcsv)
     # remove non-volunteer lines
-    with open(tmpcsv, 'r') as infile, open("/tmp/archivesspace-json-records/deleted_records.csv", 'w') as outfile:
+    with open(tmpcsv, "r") as infile, open(
+        "/tmp/archivesspace-json-records/deleted_records.csv", "w"
+    ) as outfile:
         writer = csv.writer(outfile)
         for line in csv.reader(infile):
             if any(volunteer in line for volunteer in volunteers):
                 writer.writerow(line)
     return
+
 
 def main(init: ("export initial json files only", "flag", "i")):
 
@@ -152,6 +157,7 @@ def main(init: ("export initial json files only", "flag", "i")):
     # system_mtime is the zero-indexed column number in the table
     # total_columns is the count of the columns in the table
     sources = {
+        "deleted_records": None,
         "agent_corporate_entity": {
             "api": "agents/corporate_entities",
             "lock_version": "1",
@@ -164,13 +170,12 @@ def main(init: ("export initial json files only", "flag", "i")):
             "system_mtime": "7",
             "total_columns": "12",
         },
-        # "archival_object": {
-        #     "api": "repositories/2/archival_objects",
-        #     "lock_version": "1",
-        #     "system_mtime": "21",
-        #     "total_columns": "27",
-        # },
-        "deleted_records": None,
+        "archival_object": {
+            "api": "repositories/2/archival_objects",
+            "lock_version": "1",
+            "system_mtime": "21",
+            "total_columns": "27",
+        },
         "resource": {
             "api": "repositories/2/resources",
             "lock_version": "1",
@@ -187,6 +192,14 @@ def main(init: ("export initial json files only", "flag", "i")):
 
     if not init:
         # TODO create settings.ini file for file paths
+        if git.Repo(os.path.abspath("/tmp/archivesspace-json-records")):
+            git_repository = git.Repo(
+                os.path.abspath("/tmp/archivesspace-json-records")
+            )
+        # exit if repository is dirty
+        if git_repository.is_dirty(untracked_files=True):
+            sys.exit(str(datetime.today()) + " ⛔️ exited: git repository is dirty")
+
         # files_last_modified_desc = get_files_last_modified_desc(
         #     "/Users/tkeswick/Development/archives/data/lyrasis"
         # )
@@ -195,7 +208,8 @@ def main(init: ("export initial json files only", "flag", "i")):
             # "new": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
             # "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-03-01.sql.gz",
             "new": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-05.sql.gz",
-            "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
+            "old": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-04.sql.gz",
+            # "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
         }
 
         output_dir = Path(f"/tmp/archivesspace-csv-records")
@@ -212,15 +226,18 @@ def main(init: ("export initial json files only", "flag", "i")):
         print(source_table)
 
         if init:
-            # use `source_info['api']` to get api endpoint path (without leading/trailing slashes)
-            identifiers = asnake_client.get(
-                f"/{source_info['api']}?all_ids=true"
-            ).json()
+            if source_table == "deleted_records":
+                Path("/tmp/archivesspace-json-records/deleted_records.csv").touch()
+                continue
+            else:
+                # use `source_info['api']` to get api endpoint path (without leading/trailing slashes)
+                identifiers = asnake_client.get(
+                    f"/{source_info['api']}?all_ids=true"
+                ).json()
         else:
             # adapted from mysqldumpgz_to_csv_tables.py
             for key, value in files.items():
-                print(key)
-                print(value)
+                print(key, value)
                 with gzip.open(files[key], "rt") as f:
                     for line in f:
                         # Look for an INSERT statement and parse it.
@@ -229,7 +246,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                             table = get_table_name(line)
                             if table != source_table:
                                 continue
-                            elif table == 'deleted_records':
+                            elif table == "deleted_records":
                                 track_volunteer_deletions(line)
                             # set up output file
                             tablecsv = f"{output_dir}/complete-{key}-{table}.csv"
@@ -237,7 +254,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                             if values_sanity_check(values):
                                 parse_values(values, tablecsv)
 
-            if source_table == 'deleted_records':
+            if source_table == "deleted_records":
                 continue
             # list wanted columns
             wanted_columns = []
@@ -307,9 +324,13 @@ def main(init: ("export initial json files only", "flag", "i")):
                         git_files_remove.append(os.path.join(path, i))
                         os.remove(os.path.join(path, i))
 
-        # use source_info['api'] to get api endpoint path (without leading/trailing slashes)
-        print(identifiers)
+        if not init:
+            print(identifiers)
+        else:
+            print(len(identifiers))
+
         for id_ in list(identifiers):
+            # use source_info['api'] to get api endpoint path (without leading/trailing slashes)
             result = asnake_client.get(f"/{(source_info['api'])}/{id_}").json()
             # `title` is not required for an `archival_object`
             if "title" not in result:
@@ -340,7 +361,8 @@ def main(init: ("export initial json files only", "flag", "i")):
                 clean = recursive_filter(result, *keys_to_remove)
                 # export JSON file
                 # limit the slug to 240 characters to avoid a macOS 255-character filename limit
-                slug = make_safe_filename(name)[:240]
+                # lowercase to avoid case-only filename changes that mess up git
+                slug = make_safe_filename(name)[:240].lower()
                 with open(
                     # TODO set path in settings
                     f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
@@ -348,7 +370,9 @@ def main(init: ("export initial json files only", "flag", "i")):
                 ) as f:
                     json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
                     # add filename to archivists list
-                    git_files_add_archivists.append(f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json")
+                    git_files_add_archivists.append(
+                        f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json"
+                    )
             else:
                 # clean
                 clean = recursive_filter(result, *keys_to_remove)
@@ -362,51 +386,78 @@ def main(init: ("export initial json files only", "flag", "i")):
                 ) as f:
                     json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
                     # add filename to volunteers list
-                    git_files_add_volunteers.append(f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json")
+                    git_files_add_volunteers.append(
+                        f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json"
+                    )
 
-
-    # TODO turn duplicate code into a function
-    if git.Repo(os.path.abspath("/tmp/archivesspace-json-records")):
-        git_repository = git.Repo(os.path.abspath("/tmp/archivesspace-json-records"))
-
-    # add archivist-modified files to git
-    git_repository.index.add(git_files_add_archivists)
-
-    # check differences between current files and last commit
-    # NOTE: diff is an empty string if nothing has changed
-    if git_repository.git.diff(git_repository.head.commit.tree):
-        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
-        # commit changes when they exist
-        git_repository.index.commit('archivist changes')
-        # git_repository.remotes.origin.push()
+    if init:
+        print("✅ baseline files generated, add & commit to git repository")
     else:
-        print(str(datetime.today()) + ' no changes detected', flush=True)
+        # TODO turn duplicate code into a function
 
-    # add deleted files to git
-    git_repository.index.remove(git_files_remove, working_tree=True)
-    # TODO add `deleted_records` table as csv file
-    git_repository.index.add(f"/tmp/archivesspace-json-records/deleted_records.csv")
-    # check differences between current files and last commit
-    # NOTE: diff is an empty string if nothing has changed
-    if git_repository.git.diff(git_repository.head.commit.tree):
-        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
-        # commit changes when they exist
-        git_repository.index.commit('deletions')
-        # git_repository.remotes.origin.push()
-    else:
-        print(str(datetime.today()) + ' no changes detected', flush=True)
+        # add archivist-modified files to git
+        git_repository.index.add(git_files_add_archivists)
 
-    # add volunteer-modified files to git
-    git_repository.index.add(git_files_add_volunteers)
-    # check differences between current files and last commit
-    # NOTE: diff is an empty string if nothing has changed
-    if git_repository.git.diff(git_repository.head.commit.tree):
-        print(str(datetime.today()) + ' changes detected; committing and pushing to remote', flush=True)
-        # commit changes when they exist
-        git_repository.index.commit('volunteer changes')
-        # git_repository.remotes.origin.push()
-    else:
-        print(str(datetime.today()) + ' no changes detected', flush=True)
+        # check differences between current files and last commit
+        # NOTE: diff is an empty string if nothing has changed
+        if git_repository.git.diff(git_repository.head.commit.tree):
+            print(
+                str(datetime.today())
+                + " archivist changes detected; committing and pushing to remote",
+                flush=True,
+            )
+            # commit changes when they exist
+            git_repository.index.commit(
+                f"🆗 archivist changes [{Path(files['new']).stem.split('.')[0]}]"
+            )
+            # git_repository.remotes.origin.push()
+        else:
+            print(str(datetime.today()) + " no archivist changes detected", flush=True)
+
+        # add deleted files to git
+        if git_files_remove:
+            git_repository.index.remove(git_files_remove, working_tree=True)
+            # TODO add `deleted_records` table as csv file
+            git_repository.index.add(
+                f"/tmp/archivesspace-json-records/deleted_records.csv"
+            )
+            # check differences between current files and last commit
+            # NOTE: diff is an empty string if nothing has changed
+            if git_repository.git.diff(git_repository.head.commit.tree):
+                print(
+                    str(datetime.today())
+                    + " deletions detected; committing and pushing to remote",
+                    flush=True,
+                )
+                # commit changes when they exist
+                git_repository.index.commit(
+                    f"👀 deletions [{Path(files['new']).stem.split('.')[0]}]"
+                )
+                # git_repository.remotes.origin.push()
+        else:
+            print(str(datetime.today()) + " no deletions detected", flush=True)
+
+        # add volunteer-modified files to git
+        from pprint import pprint
+
+        pprint(git_files_add_volunteers)
+        git_repository.index.add(git_files_add_volunteers)
+        # check differences between current files and last commit
+        # NOTE: diff is an empty string if nothing has changed
+        if git_repository.git.diff(git_repository.head.commit.tree):
+            print(
+                str(datetime.today())
+                + " volunteer changes detected; committing and pushing to remote",
+                flush=True,
+            )
+            # commit changes when they exist
+            git_repository.index.commit(
+                f"👀 volunteer changes [{Path(files['new']).stem.split('.')[0]}]"
+            )
+            # git_repository.remotes.origin.push()
+        else:
+            print(str(datetime.today()) + " no volunteer changes detected", flush=True)
+
 
 # fmt: off
 if __name__ == "__main__":
