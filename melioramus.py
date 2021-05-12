@@ -10,17 +10,16 @@ import sys
 import tempfile
 
 from asnake.client import ASnakeClient
+from decouple import config
+from decouple import Csv
 import git
 import pandas as pd
 
 asnake_client = ASnakeClient()
 asnake_client.authorize()
 
-volunteers = [
-    "alexandra",
-    "kitty",
-    "mary",
-]
+volunteers = config("VOLUNTEERS", cast=Csv())
+output_dir = config("GIT_REPOSITORY")
 
 # get files sorted by last modified
 def get_files_last_modified_desc(path):
@@ -132,14 +131,13 @@ def recursive_filter(item, *forbidden):
 
 
 def track_volunteer_deletions(insert_statement):
-    # TODO settings.ini for paths
     tmpcsv = tempfile.mkstemp()[1]
     values = insert_statement.partition("` VALUES ")[2]
     if values_sanity_check(values):
         parse_values(values, tmpcsv)
     # remove non-volunteer lines
     with open(tmpcsv, "r") as infile, open(
-        "/tmp/archivesspace-json-records/deleted_records.csv", "w"
+        f"{output_dir}/deleted_records.csv", "w"
     ) as outfile:
         writer = csv.writer(outfile)
         for line in csv.reader(infile):
@@ -156,6 +154,7 @@ def main(init: ("export initial json files only", "flag", "i")):
     # lock_version is the zero-indexed column number in the table
     # system_mtime is the zero-indexed column number in the table
     # total_columns is the count of the columns in the table
+    # TODO check db schema version in case of incompatible upgrades
     sources = {
         "deleted_records": None,
         "agent_corporate_entity": {
@@ -191,31 +190,24 @@ def main(init: ("export initial json files only", "flag", "i")):
     }
 
     if not init:
-        # TODO create settings.ini file for file paths
-        if git.Repo(os.path.abspath("/tmp/archivesspace-json-records")):
-            git_repository = git.Repo(
-                os.path.abspath("/tmp/archivesspace-json-records")
-            )
+        if git.Repo(os.path.abspath(output_dir)):
+            git_repository = git.Repo(os.path.abspath(output_dir))
         # exit if repository is dirty
         if git_repository.is_dirty(untracked_files=True):
             sys.exit(str(datetime.today()) + " ⛔️ exited: git repository is dirty")
 
-        # files_last_modified_desc = get_files_last_modified_desc(
-        #     "/Users/tkeswick/Development/archives/data/lyrasis"
-        # )
+        mysqldump_dir = config("MYSQLDUMP_DIR")
+        # files_last_modified_desc = get_files_last_modified_desc(mysqldump_dir)
         # files = {"new": files_last_modified_desc[0], "old": files_last_modified_desc[1]}
         files = {
-            # "new": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
-            # "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-03-01.sql.gz",
-            "new": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-05.sql.gz",
-            "old": "/Users/tkeswick/Development/archives/data/lyrasis/archivesspace-2021-05-04.sql.gz",
-            # "old": "/Users/tkeswick/Development/archives/data/lyrasis/caltech-2021-05-01.sql.gz",
+            # "new": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
+            # "old": f"{mysqldump_dir}/caltech-2021-03-01.sql.gz",
+            "new": f"{mysqldump_dir}/archivesspace-2021-05-03.sql.gz",
+            "old": f"{mysqldump_dir}/archivesspace-2021-05-02.sql.gz",
+            # "old": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
         }
 
-        output_dir = Path(f"/tmp/archivesspace-csv-records")
-        if Path(output_dir).is_dir():
-            shutil.rmtree(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        tmpcsv_dir = tempfile.mkdtemp()
 
     git_files_add_archivists = []
     git_files_add_volunteers = []
@@ -227,7 +219,7 @@ def main(init: ("export initial json files only", "flag", "i")):
 
         if init:
             if source_table == "deleted_records":
-                Path("/tmp/archivesspace-json-records/deleted_records.csv").touch()
+                Path(f"{output_dir}/deleted_records.csv").touch()
                 continue
             else:
                 # use `source_info['api']` to get api endpoint path (without leading/trailing slashes)
@@ -249,7 +241,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                             elif table == "deleted_records":
                                 track_volunteer_deletions(line)
                             # set up output file
-                            tablecsv = f"{output_dir}/complete-{key}-{table}.csv"
+                            tablecsv = f"{tmpcsv_dir}/complete-{key}-{table}.csv"
                             values = line.partition("` VALUES ")[2]
                             if values_sanity_check(values):
                                 parse_values(values, tablecsv)
@@ -267,35 +259,31 @@ def main(init: ("export initial json files only", "flag", "i")):
             del wanted_columns[int(source_info["lock_version"])]
             # load csv into dataframe without unwanted columns
             complete_old = pd.read_csv(
-                f"/tmp/archivesspace-csv-records/complete-old-{source_table}.csv",
+                f"{tmpcsv_dir}/complete-old-{source_table}.csv",
                 header=None,
                 usecols=wanted_columns,
             )
             complete_new = pd.read_csv(
-                f"/tmp/archivesspace-csv-records/complete-new-{source_table}.csv",
+                f"{tmpcsv_dir}/complete-new-{source_table}.csv",
                 header=None,
                 usecols=wanted_columns,
             )
             # write out to csv
             complete_old.to_csv(
-                f"/tmp/archivesspace-csv-records/partial-old-{source_table}.csv",
+                f"{tmpcsv_dir}/partial-old-{source_table}.csv",
                 mode="w",
                 header=False,
                 index=False,
             )
             complete_new.to_csv(
-                f"/tmp/archivesspace-csv-records/partial-new-{source_table}.csv",
+                f"{tmpcsv_dir}/partial-new-{source_table}.csv",
                 mode="w",
                 header=False,
                 index=False,
             )
 
-            old = open(
-                f"/tmp/archivesspace-csv-records/partial-old-{source_table}.csv", "r"
-            ).readlines()
-            new = open(
-                f"/tmp/archivesspace-csv-records/partial-new-{source_table}.csv", "r"
-            ).readlines()
+            old = open(f"{tmpcsv_dir}/partial-old-{source_table}.csv", "r").readlines()
+            new = open(f"{tmpcsv_dir}/partial-new-{source_table}.csv", "r").readlines()
 
             # `identifiers` will be a set of all additions and modifications while
             # `subtractions` will be a set of only removed items
@@ -315,8 +303,7 @@ def main(init: ("export initial json files only", "flag", "i")):
             deletions = list(subtractions - identifiers)
             # TODO the double loop seems expensive
             for id_ in deletions:
-                # TODO set path in settings
-                path = f"/tmp/archivesspace-json-records/{source_info['api']}"
+                path = f"{output_dir}/{source_info['api']}"
                 for i in os.listdir(path):
                     if os.path.isfile(os.path.join(path, i)) and i.startswith(
                         f"{id_}-"
@@ -364,14 +351,13 @@ def main(init: ("export initial json files only", "flag", "i")):
                 # lowercase to avoid case-only filename changes that mess up git
                 slug = make_safe_filename(name)[:240].lower()
                 with open(
-                    # TODO set path in settings
-                    f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
+                    f"{output_dir}/{source_info['api']}/{id_}-{slug}.json",
                     "w",
                 ) as f:
                     json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
                     # add filename to archivists list
                     git_files_add_archivists.append(
-                        f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json"
+                        f"{output_dir}/{source_info['api']}/{id_}-{slug}.json"
                     )
             else:
                 # clean
@@ -380,14 +366,13 @@ def main(init: ("export initial json files only", "flag", "i")):
                 # limit the slug to 240 characters to avoid a macOS 255-character filename limit
                 slug = make_safe_filename(name)[:240]
                 with open(
-                    # TODO set path in settings
-                    f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json",
+                    f"{output_dir}/{source_info['api']}/{id_}-{slug}.json",
                     "w",
                 ) as f:
                     json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
                     # add filename to volunteers list
                     git_files_add_volunteers.append(
-                        f"/tmp/archivesspace-json-records/{source_info['api']}/{id_}-{slug}.json"
+                        f"{output_dir}/{source_info['api']}/{id_}-{slug}.json"
                     )
 
     if init:
@@ -417,10 +402,8 @@ def main(init: ("export initial json files only", "flag", "i")):
         # add deleted files to git
         if git_files_remove:
             git_repository.index.remove(git_files_remove, working_tree=True)
-            # TODO add `deleted_records` table as csv file
-            git_repository.index.add(
-                f"/tmp/archivesspace-json-records/deleted_records.csv"
-            )
+            # add `deleted_records` table as csv file
+            git_repository.index.add(f"{output_dir}/deleted_records.csv")
             # check differences between current files and last commit
             # NOTE: diff is an empty string if nothing has changed
             if git_repository.git.diff(git_repository.head.commit.tree):
