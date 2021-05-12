@@ -319,6 +319,7 @@ def main(init: ("export initial json files only", "flag", "i")):
         for id_ in list(identifiers):
             # use source_info['api'] to get api endpoint path (without leading/trailing slashes)
             result = asnake_client.get(f"/{(source_info['api'])}/{id_}").json()
+
             # `title` is not required for an `archival_object`
             if "title" not in result:
                 if "display_string" not in result:
@@ -330,50 +331,42 @@ def main(init: ("export initial json files only", "flag", "i")):
                     name = result["display_string"]
             else:
                 name = result["title"]
+            # limit the slug to 240 characters to avoid a macOS 255-character filename limit
+            # lowercase to avoid case-only filename changes that mess up git
+            slug = make_safe_filename(name)[:240].lower()
+
             # delete keys that muck up diffs
-            conditional_keys_to_remove = [
-                "created_by",
-                "last_modified_by",
-            ]
             keys_to_remove = [
                 "create_time",
                 "lock_version",
                 "system_mtime",
                 "user_mtime",
             ]
-            # TODO turn duplicate code into a function
+            conditional_keys_to_remove = [
+                "created_by",
+                "last_modified_by",
+            ]
+
+            # we want to distinguish changes by archivists and by volunteers
             if result["last_modified_by"] not in volunteers:
                 keys_to_remove.extend(conditional_keys_to_remove)
-                # clean
-                clean = recursive_filter(result, *keys_to_remove)
-                # export JSON file
-                # limit the slug to 240 characters to avoid a macOS 255-character filename limit
-                # lowercase to avoid case-only filename changes that mess up git
-                slug = make_safe_filename(name)[:240].lower()
-                with open(
-                    f"{output_dir}/{source_info['api']}/{id_}-{slug}.json",
-                    "w",
-                ) as f:
-                    json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
-                    # add filename to archivists list
-                    git_files_add_archivists.append(
-                        f"{output_dir}/{source_info['api']}/{id_}-{slug}.json"
-                    )
+                git_files_add = git_files_add_archivists
             else:
-                # clean
-                clean = recursive_filter(result, *keys_to_remove)
-                # export JSON file
-                # limit the slug to 240 characters to avoid a macOS 255-character filename limit
-                slug = make_safe_filename(name)[:240]
-                with open(
-                    f"{output_dir}/{source_info['api']}/{id_}-{slug}.json",
-                    "w",
-                ) as f:
-                    json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
-                    # add filename to volunteers list
-                    git_files_add_volunteers.append(
-                        f"{output_dir}/{source_info['api']}/{id_}-{slug}.json"
-                    )
+                git_files_add = git_files_add_volunteers
+
+            # recursively remove keys from JSON files
+            clean = recursive_filter(result, *keys_to_remove)
+
+            # export JSON file
+            with open(
+                f"{output_dir}/{source_info['api']}/{id_}-{slug}.json",
+                "w",
+            ) as f:
+                json.dump(clean, f, ensure_ascii=False, indent=4, sort_keys=True)
+                # add filename to correct list
+                git_files_add.append(
+                    f"{output_dir}/{source_info['api']}/{id_}-{slug}.json"
+                )
 
     if init:
         print("✅ baseline files generated, add & commit to git repository")
@@ -421,9 +414,6 @@ def main(init: ("export initial json files only", "flag", "i")):
             print(str(datetime.today()) + " no deletions detected", flush=True)
 
         # add volunteer-modified files to git
-        from pprint import pprint
-
-        pprint(git_files_add_volunteers)
         git_repository.index.add(git_files_add_volunteers)
         # check differences between current files and last commit
         # NOTE: diff is an empty string if nothing has changed
