@@ -1,3 +1,6 @@
+# TRACKING VOLUNTEER AUGMENTATION OF ARCHIVESSPACE RECORDS
+# vaugment.py
+
 import csv
 from datetime import datetime
 import difflib
@@ -149,11 +152,11 @@ def track_volunteer_deletions(insert_statement):
 def main(init: ("export initial json files only", "flag", "i")):
 
     # SOURCES:
-    # keys are table names
-    # api is the endpoint path without leading or trailing slashes
-    # lock_version is the zero-indexed column number in the table
-    # system_mtime is the zero-indexed column number in the table
-    # total_columns is the count of the columns in the table
+    # - keys are table names
+    # - api is the endpoint path without leading or trailing slashes
+    # - lock_version is the zero-indexed column number in the table
+    # - system_mtime is the zero-indexed column number in the table
+    # - total_columns is the count of the columns in the table
     # TODO check db schema version in case of incompatible upgrades
     sources = {
         "deleted_records": None,
@@ -202,8 +205,8 @@ def main(init: ("export initial json files only", "flag", "i")):
         files = {
             # "new": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
             # "old": f"{mysqldump_dir}/caltech-2021-03-01.sql.gz",
-            "new": f"{mysqldump_dir}/archivesspace-2021-05-03.sql.gz",
-            "old": f"{mysqldump_dir}/archivesspace-2021-05-02.sql.gz",
+            "new": f"{mysqldump_dir}/archivesspace-2021-05-10.sql.gz",
+            "old": f"{mysqldump_dir}/archivesspace-2021-05-07.sql.gz",
             # "old": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
         }
 
@@ -371,11 +374,8 @@ def main(init: ("export initial json files only", "flag", "i")):
     if init:
         print("✅ baseline files generated, add & commit to git repository")
     else:
-        # TODO turn duplicate code into a function
-
         # add archivist-modified files to git
         git_repository.index.add(git_files_add_archivists)
-
         # check differences between current files and last commit
         # NOTE: diff is an empty string if nothing has changed
         if git_repository.git.diff(git_repository.head.commit.tree):
@@ -388,7 +388,7 @@ def main(init: ("export initial json files only", "flag", "i")):
             git_repository.index.commit(
                 f"🆗 archivist changes [{Path(files['new']).stem.split('.')[0]}]"
             )
-            # git_repository.remotes.origin.push()
+            git_repository.remotes.origin.push()
         else:
             print(str(datetime.today()) + " no archivist changes detected", flush=True)
 
@@ -409,7 +409,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                 git_repository.index.commit(
                     f"👀 deletions [{Path(files['new']).stem.split('.')[0]}]"
                 )
-                # git_repository.remotes.origin.push()
+                git_repository.remotes.origin.push()
         else:
             print(str(datetime.today()) + " no deletions detected", flush=True)
 
@@ -427,7 +427,7 @@ def main(init: ("export initial json files only", "flag", "i")):
             git_repository.index.commit(
                 f"👀 volunteer changes [{Path(files['new']).stem.split('.')[0]}]"
             )
-            # git_repository.remotes.origin.push()
+            git_repository.remotes.origin.push()
         else:
             print(str(datetime.today()) + " no volunteer changes detected", flush=True)
 
