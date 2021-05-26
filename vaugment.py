@@ -386,7 +386,7 @@ def main(init: ("export initial json files only", "flag", "i")):
             )
             # commit changes when they exist
             git_repository.index.commit(
-                f"🆗 archivist changes [{Path(files['new']).stem.split('.')[0]}]"
+                f"archivist changes [{Path(files['new']).stem.split('.')[0]}]"
             )
             git_repository.remotes.origin.push()
         else:
@@ -407,7 +407,7 @@ def main(init: ("export initial json files only", "flag", "i")):
                 )
                 # commit changes when they exist
                 git_repository.index.commit(
-                    f"👀 deletions [{Path(files['new']).stem.split('.')[0]}]"
+                    f"❌ deletions [{Path(files['new']).stem.split('.')[0]}]"
                 )
                 git_repository.remotes.origin.push()
         else:
@@ -420,7 +420,7 @@ def main(init: ("export initial json files only", "flag", "i")):
         if git_repository.git.diff(git_repository.head.commit.tree):
             print(
                 str(datetime.today())
-                + " volunteer changes detected; committing and pushing to remote",
+                + "☣️ volunteer changes detected; committing and pushing to remote",
                 flush=True,
             )
             # commit changes when they exist
