@@ -24,10 +24,12 @@ asnake_client.authorize()
 volunteers = config("VOLUNTEERS", cast=Csv())
 output_dir = config("GIT_REPOSITORY")
 
-# get files sorted by last modified
-def get_files_last_modified_desc(path):
-    files = os.listdir(path)
-    paths = [os.path.join(path, basename) for basename in files]
+# get sql.gz files sorted by last modified
+def get_latest_sqlgz(path):
+    paths = []
+    for file in os.listdir(path):
+        if file.endswith(".sql.gz"):
+            paths.append(os.path.join(path, file))
     return sorted(paths, key=os.path.getmtime, reverse=True)
 
 
@@ -200,15 +202,15 @@ def main(init: ("export initial json files only", "flag", "i")):
             sys.exit(str(datetime.today()) + " ⛔️ exited: git repository is dirty")
 
         mysqldump_dir = config("MYSQLDUMP_DIR")
-        # files_last_modified_desc = get_files_last_modified_desc(mysqldump_dir)
-        # files = {"new": files_last_modified_desc[0], "old": files_last_modified_desc[1]}
-        files = {
-            # "new": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
-            # "old": f"{mysqldump_dir}/caltech-2021-03-01.sql.gz",
-            "new": f"{mysqldump_dir}/archivesspace-2021-05-10.sql.gz",
-            "old": f"{mysqldump_dir}/archivesspace-2021-05-07.sql.gz",
-            # "old": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
-        }
+        files_last_modified_desc = get_latest_sqlgz(mysqldump_dir)
+        files = {"new": files_last_modified_desc[0], "old": files_last_modified_desc[1]}
+        # files = {
+        #     # "new": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
+        #     # "old": f"{mysqldump_dir}/caltech-2021-03-01.sql.gz",
+        #     "new": f"{mysqldump_dir}/archivesspace-2021-05-26.sql.gz",
+        #     "old": f"{mysqldump_dir}/archivesspace-2021-05-25.sql.gz",
+        #     # "old": f"{mysqldump_dir}/caltech-2021-05-01.sql.gz",
+        # }
 
         tmpcsv_dir = tempfile.mkdtemp()
 
