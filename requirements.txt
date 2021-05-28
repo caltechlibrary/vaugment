@@ -1,4 +1,5 @@
 ArchivesSnake==0.9.1
 GitPython==3.1.17
 pandas==1.2.4
+plac==1.3.3
 python-decouple==3.4
